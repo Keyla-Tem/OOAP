@@ -24,14 +24,7 @@ export default function NavBar() {
         Создать проект
       </NavLink>
 
-      {/* НОВАЯ ССЫЛКА ДЛЯ ТЕСТА ЛР-4 */}
-      <NavLink to="/canvas"
-        className={({ isActive }) =>
-          isActive ? "text-blue-400 font-bold" : "text-slate-400 hover:text-white"
-        }
-      >
-        Canvas Тест (ЛР-4)
-      </NavLink>
+
     </nav>
   );
 }

@@ -12,6 +12,25 @@ export class Rect extends Shape {
     this.height = height;
   }
 
+ // Изменение размера фигуры по новым экранным границам
+  resizeFromDeviceAABB(minX: number, minY: number, maxX: number, maxY: number): void {
+    // Переводим экранные границы в локальные координаты
+    const localMin = this.transformPointToLocal(minX, minY);
+    const localMax = this.transformPointToLocal(maxX, maxY);
+    
+    if (localMin && localMax) {
+      // Вычисляем новые ширину и высоту
+      this.width = Math.abs(localMax.x - localMin.x);
+      this.height = Math.abs(localMax.y - localMin.y);
+      
+      // Обновляем центр фигуры
+      this.transform.x = (minX + maxX) / 2;
+      this.transform.y = (minY + maxY) / 2;
+    }
+  }
+
+
+
   // Отрисовка прямоугольника
   drawRaster(r: RasterRenderer): void {
     // Вычисляем 4 угла в локальных координатах

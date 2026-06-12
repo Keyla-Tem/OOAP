@@ -116,29 +116,35 @@ export class RasterRenderer {
 
   // Жизненный цикл кадра: синхронизация размеров с учётом DPR
   resize() {
-    this.dpr = window.devicePixelRatio || 1;
-    const rect = this.canvas.getBoundingClientRect();
-    
-    const w = Math.floor(rect.width * this.dpr);
-    const h = Math.floor(rect.height * this.dpr);
+   this.dpr = window.devicePixelRatio || 1;
+  const rect = this.canvas.getBoundingClientRect();
+  
+  const w = Math.floor(rect.width * this.dpr);
+  const h = Math.floor(rect.height * this.dpr);
 
-    // ИСПРАВЛЕНИЕ БАГА #1: Проверяем размеры ДО присваивания!
-    if (this.width === w && this.height === h) return;
+  // ИСПРАВЛЕНИЕ БАГА #1: Проверяем размеры ДО присваивания!
+  if (this.width === w && this.height === h) return;
 
-    this.width = w;
-    this.height = h;
+  this.width = w;
+  this.height = h;
 
-    // Задаём физический размер canvas (буфера)
-    this.canvas.width = this.width;
-    this.canvas.height = this.height;
+  // Задаём физический размер canvas (буфера)
+  this.canvas.width = this.width;
+  this.canvas.height = this.height;
 
-    // Задаём CSS-размер (чтобы элемент не растягивался на весь экран)
-    this.canvas.style.width = `${rect.width}px`;
-    this.canvas.style.height = `${rect.height}px`;
+  // Задаём CSS-размер (чтобы элемент не растягивался на весь экран)
+  this.canvas.style.width = `${rect.width}px`;
+  this.canvas.style.height = `${rect.height}px`;
 
-    // Пересоздаем буфер (ImageData) под новый размер
-    this.imageData = this.ctx.createImageData(this.width, this.height);
-    this.buf = this.imageData.data;
+  // === ДОБАВИТЬ ВОТ ЭТО ===
+  // Включаем сглаживание для чётких контуров
+  this.ctx.imageSmoothingEnabled = true;
+  this.ctx.imageSmoothingQuality = 'high';
+  // ========================
+
+  // Пересоздаем буфер (ImageData) под новый размер
+  this.imageData = this.ctx.createImageData(this.width, this.height);
+  this.buf = this.imageData.data;
   }
 
   // Очистка буфера (заполнение нулями = прозрачный чёрный)
@@ -151,8 +157,11 @@ export class RasterRenderer {
   // Вывод буфера на экран (копирование из CPU в GPU)
   commit() {
     if (this.imageData && this.ctx) {
-      this.ctx.putImageData(this.imageData, 0, 0);
-    }
+    // Сначала очищаем canvas
+    this.ctx.clearRect(0, 0, this.width, this.height);
+    // Затем рисуем с включенным сглаживанием
+    this.ctx.putImageData(this.imageData, 0, 0);
+  }
   }
 
   // Алгоритм Брезенхема (Целочисленная отрисовка линии)

@@ -1,13 +1,50 @@
 // src/screens/CanvasScene.tsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { RasterRenderer } from "../lib/raster/RasterRenderer";
 import { Rect } from "../lib/shapes/Rect";
 import { Line } from "../lib/shapes/Line";
 import { Oval } from "../lib/shapes/Oval";
+import { Shape } from "../lib/shapes/Shape";
 
-export default function CanvasScene() {
+// =====================================================================
+// ПРОПСЫ КОМПОНЕНТА
+// =====================================================================
+interface CanvasSceneProps {
+  lineAlg: "bresenham" | "wu";
+  currentTool: "select" | "rect" | "line" | "oval";
+  shapes: Shape[];
+  selectedId: string | null;
+  onShapesChange: (shapes: Shape[]) => void;
+  onSelectedIdChange: (id: string | null) => void;
+}
+
+export default function CanvasScene({
+  lineAlg,
+  currentTool,
+  shapes,
+  selectedId,
+  onShapesChange,
+  onSelectedIdChange
+}: CanvasSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [lineAlg, setLineAlg] = useState<"bresenham" | "wu">("bresenham");
+  const rendererRef = useRef<RasterRenderer | null>(null);
+  
+  // =====================================================================
+  // REFS ДЛЯ ПЛАВНОГО ПЕРЕМЕЩЕНИЯ (избегаем устаревших замыканий)
+  // =====================================================================
+const isDraggingRef = useRef(false);
+const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+const dragShapeIdRef = useRef<string | null>(null);
+const dragOffsetRef = useRef({ x: 0, y: 0 });  // === ДОБАВИТЬ ===
+
+// Refs для актуальных данных
+const shapesRef = useRef<Shape[]>(shapes);
+const selectedIdRef = useRef<string | null>(selectedId);
+const currentToolRef = useRef<"select" | "rect" | "line" | "oval">(currentTool);
+  // Обновляем refs при изменении props
+  useEffect(() => { shapesRef.current = shapes; }, [shapes]);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { currentToolRef.current = currentTool; }, [currentTool]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -18,112 +55,137 @@ export default function CanvasScene() {
 
     const renderer = new RasterRenderer(canvas);
     renderer.setLineAlgorithm(lineAlg);
+    rendererRef.current = renderer;
 
     // =====================================================================
-    // СОЗДАНИЕ ТЕСТОВЫХ ФИГУР
+    // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
     // =====================================================================
+    const getMousePos = (e: MouseEvent): { x: number; y: number } => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = renderer.dpr;
+      return {
+        x: (e.clientX - rect.left) * dpr,
+        y: (e.clientY - rect.top) * dpr
+      };
+    };
 
-    // --- ТЕСТ 1: Линии (сравнение алгоритмов) ---
+    // =====================================================================
+    // ОБРАБОТЧИКИ МЫШИ
+    // =====================================================================
+   const handleMouseDown = (e: MouseEvent) => {
+  const { x, y } = getMousePos(e);
+  
+  if (currentToolRef.current === "select") {
+    for (let i = shapesRef.current.length - 1; i >= 0; i--) {
+      const shape = shapesRef.current[i];
+      if (shape.hitTest(x, y)) {
+        onSelectedIdChange(shape.id);
+        isDraggingRef.current = true;
+        dragStartRef.current = { x, y };
+        dragShapeIdRef.current = shape.id;
+        
+        // === ВЫЧИСЛЯЕМ СМЕЩЕНИЕ ОТ ЦЕНТРА ФИГУРЫ ДО КУРСОРА ===
+        const shapeCenterX = shape.transform.x * renderer.dpr;
+        const shapeCenterY = shape.transform.y * renderer.dpr;
+        dragOffsetRef.current = {
+          x: x - shapeCenterX,
+          y: y - shapeCenterY
+        };
+        
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+    }
+    onSelectedIdChange(null);
+  } else {
+    const newShape = createShapeAt(currentToolRef.current, x, y, renderer.dpr);
+    if (newShape) {
+      onShapesChange([...shapesRef.current, newShape]);
+      onSelectedIdChange(newShape.id);
+    }
+  }
+};
+
+const handleMouseMove = (e: MouseEvent) => {
+  if (!isDraggingRef.current || !dragShapeIdRef.current || !dragStartRef.current) {
+    return;
+  }
+  
+  const { x, y } = getMousePos(e);
+  
+  // === ИСПОЛЬЗУЕМ requestAnimationFrame для синхронизации ===
+  requestAnimationFrame(() => {
+    const currentShapes = shapesRef.current;
+    const updatedShapes = currentShapes.map(shape => {
+      if (shape.id === dragShapeIdRef.current) {
+        const cloned = shape.clone();
+        
+        // === ПРЯМО ВЫЧИСЛЯЕМ НОВУЮ ПОЗИЦИЮ БЕЗ НАКОПЛЕНИЯ ===
+        // Новая позиция = (текущая позиция мыши - смещение) / dpr
+        const newX = (x - dragOffsetRef.current.x) / renderer.dpr;
+        const newY = (y - dragOffsetRef.current.y) / renderer.dpr;
+        
+        // === НЕ ОКРУГЛЯЕМ ИЛИ ОКРУГЛЯЕМ ДО 4 ЗНАКОВ ===
+        cloned.transform.x = newX;
+        cloned.transform.y = newY;
+        
+        return cloned;
+      }
+      return shape;
+    });
     
-    // Красная диагональная линия (вверху слева)
-    const redLine = new Line('line-red', 0, 0, 150, 50);
-    redLine.transform.x = 50;
-    redLine.transform.y = 50;
-    redLine.strokeStyle = '#ef4444';
-    redLine.strokeWidth = 1;
-    redLine.strokeOpacity = 1;
+    shapesRef.current = updatedShapes;
+    onShapesChange(updatedShapes);
+  });
+  
+  // === НЕ СБРАСЫВАЕМ dragStartRef — он больше не нужен ===
+};
 
-    // Зеленая горизонтальная линия (посередине слева)
-    const greenLine = new Line('line-green', 0, 0, 250, 0);
-    greenLine.transform.x = 50;
-    greenLine.transform.y = 220;
-    greenLine.strokeStyle = '#22c55e';
-    greenLine.strokeWidth = 1;
-    greenLine.strokeOpacity = 1;
+const handleMouseUp = () => {
+  isDraggingRef.current = false;
+  dragStartRef.current = null;
+  dragShapeIdRef.current = null;
+  dragOffsetRef.current = { x: 0, y: 0 };  // === СБРОС СМЕЩЕНИЯ ===
+  canvas.style.cursor = 'crosshair';
+};
 
-    // --- ТЕСТ 2: Прозрачность (квадрат + круг) ---
+    const handleMouseLeave = () => {
+      handleMouseUp();
+    };
+
+    // =====================================================================
+    // НАВЕШИВАЕМ ОБРАБОТЧИКИ
+    // =====================================================================
+    canvas.addEventListener("mousedown", handleMouseDown);
+    canvas.addEventListener("mousemove", handleMouseMove);
+    canvas.addEventListener("mouseup", handleMouseUp);
+    canvas.addEventListener("mouseleave", handleMouseLeave);
     
-    // Синий квадрат (непрозрачный)
-    const blueSquare = new Rect('rect-blue', 150, 150);
-    blueSquare.transform.x = 325;  // центр по горизонтали
-    blueSquare.transform.y = 125;  // центр по вертикали
-    blueSquare.fillStyle = '#3b82f6';
-    blueSquare.fillOpacity = 1;
-
-    // Полупрозрачный красный круг (тест альфа-блендинга)
-    const redCircle = new Oval('circle-red', 60, 60);
-    redCircle.transform.x = 405;  
-    redCircle.transform.y = 125;
-    redCircle.fillStyle = '#ef4444';
-    redCircle.fillOpacity = 0.5;  // 50% прозрачности → фиолетовое пересечение!
-
-    // --- ТЕСТ 3: Красный заполненный треугольник ---
-    const triRedBase = new Line('tri-r-base', -60, 0, 60, 0);           // основание 120px
-    const triRedRight = new Line('tri-r-right', 60, 0, 0, -104);        // правая сторона
-    const triRedLeft = new Line('tri-r-left', 0, -104, -60, 0);         // левая сторона
-    // Высота равностороннего треугольника: 120 × √3/2 ≈ 104
-    
-    const triRedX = 160;
-    const triRedY = 402;  // 350 + 52 (сдвиг к центру высоты)
-    
-    [triRedBase, triRedRight, triRedLeft].forEach(line => {
-      line.transform.x = triRedX;
-      line.transform.y = triRedY;
-      line.strokeStyle = '#ef4444';
-      line.strokeWidth = 1;
-      line.strokeOpacity = 1;
+    // Меняем курсор при входе на холст
+    canvas.addEventListener("mouseenter", () => {
+      canvas.style.cursor = currentToolRef.current === "select" ? 'default' : 'crosshair';
     });
 
-    // --- ТЕСТ 4: Жёлтый контур треугольника (толстые линии) ---
-    
-    const triYellowBase = new Line('tri-y-base', -70, -75, 70, -75);
-    const triYellowRight = new Line('tri-y-right', 70, -75, 0, 75);
-    const triYellowLeft = new Line('tri-y-left', 0, 75, -70, -75);
-    
-    const triYellowX = 360;
-    const triYellowY = 325;
-    
-    [triYellowBase, triYellowRight, triYellowLeft].forEach(line => {
-      line.transform.x = triYellowX;
-      line.transform.y = triYellowY;
-      line.strokeStyle = '#fde047';
-      line.strokeWidth = 6;      // толстая обводка
-      line.strokeOpacity = 1;
-    });
-
     // =====================================================================
-    // ЦИКЛ ОТРИСОВКИ
+    // ЦИКЛ ОТРИСОВКИ (не зависит от state — используем refs)
     // =====================================================================
-    
     let raf = 0;
     const render = () => {
       renderer.beginFrame(true);
-
-      // Применяем выбранный алгоритм ко всем линиям
       renderer.setLineAlgorithm(lineAlg);
 
-      // =====================================================================
-      // ОТРИСОВКА ФИГУР (порядок: задние → передние)
-      // =====================================================================
+      // Рисуем все фигуры из актуального ref
+      for (const shape of shapesRef.current) {
+        shape.drawRaster(renderer);
+      }
 
-      // --- Линии ---
-      redLine.drawRaster(renderer);
-      greenLine.drawRaster(renderer);
-
-      // --- Прозрачность: квадрат + круг ---
-      blueSquare.drawRaster(renderer);   // сначала фон
-      redCircle.drawRaster(renderer);    // потом полупрозрачный круг сверху
-
-      // --- Треугольники (контуры) ---
-      // Красный (равносторонний, тонкий)
-      triRedBase.drawRaster(renderer);
-      triRedRight.drawRaster(renderer);
-      triRedLeft.drawRaster(renderer);
-      
-      // Жёлтый (толстый)
-      triYellowBase.drawRaster(renderer);
-      triYellowRight.drawRaster(renderer);
-      triYellowLeft.drawRaster(renderer);
+      // Рисуем выделение вокруг выбранной фигуры
+      if (selectedIdRef.current) {
+        const selected = shapesRef.current.find(s => s.id === selectedIdRef.current);
+        if (selected) {
+          drawSelectionOutline(renderer, selected, renderer.dpr);
+        }
+      }
 
       renderer.commit();
       raf = requestAnimationFrame(render);
@@ -131,41 +193,99 @@ export default function CanvasScene() {
 
     render();
 
+    // =====================================================================
+    // ОЧИСТКА
+    // =====================================================================
     return () => {
       cancelAnimationFrame(raf);
+      canvas.removeEventListener("mousedown", handleMouseDown);
+      canvas.removeEventListener("mousemove", handleMouseMove);
+      canvas.removeEventListener("mouseup", handleMouseUp);
+      canvas.removeEventListener("mouseleave", handleMouseLeave);
+      canvas.removeEventListener("mouseenter", () => {});
       renderer.dispose();
     };
-  }, [lineAlg]);
+  }, [lineAlg, onShapesChange, onSelectedIdChange]); // Убрали shapes/selectedId/currentTool из зависимостей
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-8">
-      <h1 className="text-2xl font-bold mb-4">Система фигур (ЛР-5)</h1>
-
-      <div className="flex gap-4 mb-6">
-        <button
-          onClick={() => setLineAlg("bresenham")}
-          className={`px-4 py-2 rounded ${
-            lineAlg === "bresenham" ? "bg-blue-600" : "bg-slate-700"
-          }`}
-        >
-          Брезенхем
-        </button>
-        <button
-          onClick={() => setLineAlg("wu")}
-          className={`px-4 py-2 rounded ${
-            lineAlg === "wu" ? "bg-blue-600" : "bg-slate-700"
-          }`}
-        >
-          Сяолинь Ву
-        </button>
-      </div>
-
-      <div className="w-[800px] h-[650px] bg-slate-900 border border-slate-800 rounded shadow-xl overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          className="w-full h-full bg-white"
-        />
-      </div>
-    </div>
+    <canvas
+      ref={canvasRef}
+      className="w-full h-full bg-white cursor-crosshair"
+      style={{ imageRendering: 'pixelated' }}
+    />
   );
+}
+
+// =====================================================================
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (вне компонента)
+// =====================================================================
+
+// Создание фигуры в указанных координатах
+function createShapeAt(
+  tool: "rect" | "line" | "oval",
+  deviceX: number,
+  deviceY: number,
+  dpr: number
+): Shape | null {
+  const cssX = deviceX / dpr;
+  const cssY = deviceY / dpr;
+  const id = `${tool}-${Date.now()}`;
+
+  switch (tool) {
+    case "rect": {
+      const rect = new Rect(id, 100, 60);
+      rect.transform.x = cssX;
+      rect.transform.y = cssY;
+      rect.fillStyle = "#3b82f6";
+      rect.fillOpacity = 0.7;
+      return rect;
+    }
+    case "line": {
+      const line = new Line(id, -50, 0, 50, 0);
+      line.transform.x = cssX;
+      line.transform.y = cssY;
+      line.strokeStyle = "#22c55e";
+      line.strokeWidth = 2;
+      return line;
+    }
+    case "oval": {
+      const oval = new Oval(id, 40, 30);
+      oval.transform.x = cssX;
+      oval.transform.y = cssY;
+      oval.fillStyle = "#ef4444";
+      oval.fillOpacity = 0.6;
+      return oval;
+    }
+    default:
+      return null;
+  }
+}
+
+// Отрисовка рамки выделения вокруг фигуры
+function drawSelectionOutline(
+  renderer: RasterRenderer,
+  shape: Shape,
+  dpr: number
+) {
+  const bounds = shape.getBounds();
+  const padding = 5 * dpr;
+
+  const outlinePoints = [
+    { x: bounds.minX - padding, y: bounds.minY - padding },
+    { x: bounds.maxX + padding, y: bounds.minY - padding },
+    { x: bounds.maxX + padding, y: bounds.maxY + padding },
+    { x: bounds.minX - padding, y: bounds.maxY + padding }
+  ];
+
+  const outlineColor = { r: 59, g: 130, b: 246, a: 255 };
+  renderer.strokePolygon(outlinePoints, outlineColor, 2 * dpr);
+
+  const handleSize = 8 * dpr;
+  const handleColor = { r: 255, g: 255, b: 255, a: 255 };
+  renderer.fillPolygon([
+    { x: bounds.maxX + padding - handleSize/2, y: bounds.minY - padding - handleSize/2 },
+    { x: bounds.maxX + padding + handleSize/2, y: bounds.minY - padding - handleSize/2 },
+    { x: bounds.maxX + padding + handleSize/2, y: bounds.minY - padding + handleSize/2 },
+    { x: bounds.maxX + padding - handleSize/2, y: bounds.minY - padding + handleSize/2 }
+  ], handleColor);
 }
