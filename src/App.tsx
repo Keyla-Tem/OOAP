@@ -5,7 +5,7 @@ import Gallery from "./screens/Gallery";
 import Editor from "./screens/Editor";
 import NotFound from "./screens/NotFound";
 
-
+import CanvasScene from "./screens/CanvasScene";
 
 function App() {
   return (
@@ -15,6 +15,8 @@ function App() {
         <main>
           <AnimatePresence mode="wait">
             <Routes>
+              <Route path="/canvas" element={<CanvasScene />} />
+
               <Route path="/" element={<Gallery />} />
               <Route path="/editor/:id" element={<Editor />} />
               <Route path="*" element={<NotFound />} />
