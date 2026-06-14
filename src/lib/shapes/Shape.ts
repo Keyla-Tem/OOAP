@@ -6,7 +6,6 @@ export abstract class Shape {
   id: string;
   transform: Transform;
   
-  // Стили
   fillStyle: string;
   fillOpacity: number;
   strokeStyle: string;
@@ -16,14 +15,11 @@ export abstract class Shape {
   constructor(id: string) {
     this.id = id;
     this.transform = {
-      x: 0,
-      y: 0,
+      x: 0, y: 0,
       rotation: 0,
-      scaleX: 1,
-      scaleY: 1
+      scaleX: 1, scaleY: 1
     };
     
-    // Стили по умолчанию
     this.fillStyle = '#000000';
     this.fillOpacity = 1;
     this.strokeStyle = '#000000';
@@ -31,41 +27,41 @@ export abstract class Shape {
     this.strokeOpacity = 1;
   }
 
-  // ========== МАТРИЧНЫЕ МЕТОДЫ ==========
+  // ✅ ИСПРАВЛЕНИЕ: получаем DPR для корректной работы на Retina
+  private getDpr(): number {
+    return typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+  }
 
-  // Матрица: локальные → экранные координаты
+  // Матрица: локальные → экранные (DEVICE координаты!)
   getLocalToDeviceMatrix(): Mat3 {
+    const dpr = this.getDpr();
     return mat3.fromTransform(
-      this.transform.x,
-      this.transform.y,
+      this.transform.x * dpr,   // ✅ CSS → Device
+      this.transform.y * dpr,   // ✅ CSS → Device
       this.transform.rotation,
       this.transform.scaleX,
       this.transform.scaleY
     );
   }
 
-  // Матрица: экранные → локальные координаты
   getDeviceToLocalMatrix(): Mat3 | null {
     const localToDevice = this.getLocalToDeviceMatrix();
     return mat3.invert(localToDevice);
   }
 
-  // Перевод точки из локальных в экранные координаты
+  // Перевод: локальные → DEVICE координаты
   transformPointToDevice(px: number, py: number): Point2D {
     const matrix = this.getLocalToDeviceMatrix();
     return mat3.transformPoint(matrix, px, py);
   }
 
-  // Перевод точки из экранных в локальные координаты
+  // Перевод: DEVICE → локальные координаты
   transformPointToLocal(px: number, py: number): Point2D | null {
     const matrix = this.getDeviceToLocalMatrix();
     if (!matrix) return null;
     return mat3.transformPoint(matrix, px, py);
   }
 
-  // ========== ОБЩИЕ МЕТОДЫ ==========
-
-  // Центр фигуры по её границам
   getCenter(): Point2D {
     const bounds = this.getBounds();
     return {
@@ -74,39 +70,16 @@ export abstract class Shape {
     };
   }
 
-  // Изменение размера через экранные границы
-  resizeFromDeviceAABB(
-    _minX: number, 
-    _minY: number, 
-    _maxX: number, 
-    _maxY: number): void {
-    // По умолчанию — заглушка
-    // Конкретные фигуры могут переопределить
-  }
-
-  // Обёртка для изменения границ
+  resizeFromDeviceAABB(_minX: number, _minY: number, _maxX: number, _maxY: number): void {}
+  
   setBounds(minX: number, minY: number, maxX: number, maxY: number): void {
     this.resizeFromDeviceAABB(minX, minY, maxX, maxY);
   }
 
-  // Клонирование фигуры
   abstract clone(): Shape;
-
-  // ========== АБСТРАКТНЫЕ МЕТОДЫ ==========
-  // (должны быть реализованы в наследниках)
-
-  // Отрисовка через растеризатор
   abstract drawRaster(r: RasterRenderer): void;
-
-  // Проверка попадания точки (хит-тест)
   abstract hitTest(px: number, py: number): boolean;
-
-  // Границы в экранных координатах
   abstract getBounds(): Bounds;
-
-  // Границы в локальных координатах
   abstract getLocalBounds(): Bounds;
-
-  // Сериализация в JSON
   abstract toJSON(): object;
 }

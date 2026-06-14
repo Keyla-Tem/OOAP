@@ -116,35 +116,33 @@ export class RasterRenderer {
 
   // Жизненный цикл кадра: синхронизация размеров с учётом DPR
   resize() {
-   this.dpr = window.devicePixelRatio || 1;
-  const rect = this.canvas.getBoundingClientRect();
-  
-  const w = Math.floor(rect.width * this.dpr);
-  const h = Math.floor(rect.height * this.dpr);
+    this.dpr = window.devicePixelRatio || 1;
+    const rect = this.canvas.getBoundingClientRect();
+    
+    const w = Math.floor(rect.width * this.dpr);
+    const h = Math.floor(rect.height * this.dpr);
 
-  // ИСПРАВЛЕНИЕ БАГА #1: Проверяем размеры ДО присваивания!
-  if (this.width === w && this.height === h) return;
+    // ИСПРАВЛЕНИЕ БАГА #1: Проверяем размеры ДО присваивания!
+    if (this.width === w && this.height === h) return;
 
-  this.width = w;
-  this.height = h;
+    this.width = w;
+    this.height = h;
 
-  // Задаём физический размер canvas (буфера)
-  this.canvas.width = this.width;
-  this.canvas.height = this.height;
+    // Задаём физический размер canvas (буфера)
+    this.canvas.width = this.width;
+    this.canvas.height = this.height;
 
-  // Задаём CSS-размер (чтобы элемент не растягивался на весь экран)
-  this.canvas.style.width = `${rect.width}px`;
-  this.canvas.style.height = `${rect.height}px`;
+    // Задаём CSS-размер (чтобы элемент не растягивался на весь экран)
+    this.canvas.style.width = `${rect.width}px`;
+    this.canvas.style.height = `${rect.height}px`;
 
-  // === ДОБАВИТЬ ВОТ ЭТО ===
-  // Включаем сглаживание для чётких контуров
-  this.ctx.imageSmoothingEnabled = true;
-  this.ctx.imageSmoothingQuality = 'high';
-  // ========================
+    // Включаем сглаживание для чётких контуров
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = 'high';
 
-  // Пересоздаем буфер (ImageData) под новый размер
-  this.imageData = this.ctx.createImageData(this.width, this.height);
-  this.buf = this.imageData.data;
+    // Пересоздаем буфер (ImageData) под новый размер
+    this.imageData = this.ctx.createImageData(this.width, this.height);
+    this.buf = this.imageData.data;
   }
 
   // Очистка буфера (заполнение нулями = прозрачный чёрный)
@@ -157,11 +155,11 @@ export class RasterRenderer {
   // Вывод буфера на экран (копирование из CPU в GPU)
   commit() {
     if (this.imageData && this.ctx) {
-    // Сначала очищаем canvas
-    this.ctx.clearRect(0, 0, this.width, this.height);
-    // Затем рисуем с включенным сглаживанием
-    this.ctx.putImageData(this.imageData, 0, 0);
-  }
+      // Сначала очищаем canvas
+      this.ctx.clearRect(0, 0, this.width, this.height);
+      // Затем рисуем с включенным сглаживанием
+      this.ctx.putImageData(this.imageData, 0, 0);
+    }
   }
 
   // Алгоритм Брезенхема (Целочисленная отрисовка линии)
@@ -203,7 +201,7 @@ export class RasterRenderer {
     const grad = tx1 - tx === 0 ? 0 : (ty1 - ty) / (tx1 - tx);
     let intery = ty;
 
-    // ИСПРАВЛЕНИЕ БАГА #2: Функция plot теперь правильно меняет координаты обратно
+    // Функция plot теперь правильно меняет координаты обратно
     const plot = (x: number, y: number, alpha: number) => {
       if (steep) {
         this.blendPixel(y, x, color, alpha); // Меняем y и x местами!
@@ -245,7 +243,7 @@ export class RasterRenderer {
 
     if (startY < 0 || startY >= this.height) return;
 
-    // ИСПРАВЛЕНИЕ БАГА #3: Поддержка прозрачности при заливке!
+    // Поддержка прозрачности при заливке!
     if (color.a === 255) {
       // Если цвет непрозрачный, используем быструю прямую запись
       for (let x = startX; x <= endX; x++) {
@@ -345,9 +343,33 @@ export class RasterRenderer {
       const b = points[(i + 1) % points.length]; // Замыкание контура через %
       this.strokeLine(a.x, a.y, b.x, b.y, color, width);
     }
+  }
+
+  /* ===================================================================
+     НОВЫЕ МЕТОДЫ ДЛЯ ЛР-7 (ПРЯМОУГОЛЬНИКИ)
+     =================================================================== */
+
+  // Заливка прямоугольника (оптимизировано через горизонтальные спаны)
+  // Работает намного быстрее, чем fillPolygon, так как не требует сортировки
+  fillRect(x: number, y: number, w: number, h: number, color: RGBA) {
+    const startX = Math.round(x);
+    const endX = Math.round(x + w);
+    const startY = Math.round(y);
+    const endY = Math.round(y + h);
     
-    // ИСПРАВЛЕНИЕ БАГА #4: Убрали дублирование кругов!
-    // Метод strokeLine УЖЕ рисует круги в концах каждого отрезка,
-    // поэтому здесь их рисовать НЕ НУЖДА, иначе в вершинах будут артефакты.
+    for (let cy = startY; cy <= endY; cy++) {
+      this.drawHSpan(cy, startX, endX, color);
+    }
+  }
+
+  // Отрисовка контура прямоугольника
+  // Использует strokePolygon для автоматического создания круглых стыков на углах
+  strokeRect(x: number, y: number, w: number, h: number, color: RGBA, width = 1) {
+    this.strokePolygon([
+      { x: x, y: y },
+      { x: x + w, y: y },
+      { x: x + w, y: y + h },
+      { x: x, y: y + h }
+    ], color, width);
   }
 }
