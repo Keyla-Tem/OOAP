@@ -232,10 +232,17 @@ export default function CanvasScene({
             cloned.transform.x = data.startTransform.x + dx / renderer.dpr;
             cloned.transform.y = data.startTransform.y + dy / renderer.dpr;
           } else if (data.mode === "rotating") {
-            const center = shape.transformPointToDevice(0, 0);
-            const startAngle = Math.atan2(data.startMouse.y - center.y, data.startMouse.x - center.x);
-            const currAngle = Math.atan2(y - center.y, x - center.x);
-            cloned.transform.rotation = data.startTransform.rotation + (currAngle - startAngle);
+             const center = shape.transformPointToDevice(0, 0);
+  const startAngle = Math.atan2(data.startMouse.y - center.y, data.startMouse.x - center.x);
+  const currAngle = Math.atan2(y - center.y, x - center.x);
+  
+  // ✅ ИСПРАВЛЕНИЕ: нормализация разницы углов
+  let angleDiff = currAngle - startAngle;
+  // Приводим к диапазону [-π, π]
+  while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+  while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+  
+  cloned.transform.rotation = data.startTransform.rotation + angleDiff;
           } else if (data.mode === "resizing" && data.anchorDevice && data.anchorLocal) {
             const cos = Math.cos(data.startTransform.rotation);
             const sin = Math.sin(data.startTransform.rotation);

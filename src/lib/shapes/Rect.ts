@@ -18,15 +18,15 @@ export class Rect extends Shape {
     const localMin = this.transformPointToLocal(minX, minY);
     const localMax = this.transformPointToLocal(maxX, maxY);
     
-    if (localMin && localMax) {
-      // Вычисляем новые ширину и высоту
-      this.width = Math.abs(localMax.x - localMin.x);
-      this.height = Math.abs(localMax.y - localMin.y);
-      
-      // Обновляем центр фигуры
-      this.transform.x = (minX + maxX) / 2;
-      this.transform.y = (minY + maxY) / 2;
-    }
+      if (localMin && localMax) {
+    // Вычисляем новые размеры в локальных координатах
+    this.width = Math.abs(localMax.x - localMin.x);
+    this.height = Math.abs(localMax.y - localMin.y);
+    
+    // Обновляем позицию: центр экранных границ (в тех же единицах, что и transform)
+    this.transform.x = (minX + maxX) / 2;
+    this.transform.y = (minY + maxY) / 2;
+  }
   }
 
 

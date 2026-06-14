@@ -1,13 +1,20 @@
 // src/screens/Editor.tsx
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import CanvasScene from "./CanvasScene";
 import { Shape } from "../lib/shapes/Shape";
 import { PathMode } from '../lib/shapes/PathBezier';
+import { 
+  saveProject, 
+  loadProject, 
+  ProjectData,
+  shapesToJSON,
+  shapesFromJSON
+} from '../lib/projectStorage';
 
 import { 
   MousePointer2, Square, Minus, Circle, Triangle, PenTool, GitMerge,
-  ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Trash2
+  ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Trash2, Save
 } from 'lucide-react';
 
 // =====================================================================
@@ -38,6 +45,11 @@ export default function Editor() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lineAlg, setLineAlg] = useState<"bresenham" | "wu">("bresenham");
   const [pathMode, setPathMode] = useState<PathMode>('catmull');
+  
+  // ✅ Состояние для сохранения/загрузки проектов
+  const [projectName, setProjectName] = useState<string>('Новый проект');
+  const [isProjectLoaded, setIsProjectLoaded] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // =====================================================================
   // ОБРАБОТЧИКИ СОБЫТИЙ
@@ -57,7 +69,9 @@ export default function Editor() {
     }
   }, [selectedId]);
 
+  // ✅ ИСПРАВЛЕНО: Добавлены проверки на null и ключи для перерендера
   const updateShapePosition = useCallback((shapeId: string, newX: number, newY: number) => {
+    if (!shapeId) return;
     setShapes(prevShapes => 
       prevShapes.map(shape => {
         if (shape.id === shapeId) {
@@ -72,6 +86,7 @@ export default function Editor() {
   }, []);
 
   const updateShapeRotation = useCallback((shapeId: string, newRotation: number) => {
+    if (!shapeId) return;
     setShapes(prevShapes => 
       prevShapes.map(shape => {
         if (shape.id === shapeId) {
@@ -85,6 +100,7 @@ export default function Editor() {
   }, []);
 
   const updateShapeScale = useCallback((shapeId: string, newScaleX: number, newScaleY: number) => {
+    if (!shapeId) return;
     setShapes(prevShapes => 
       prevShapes.map(shape => {
         if (shape.id === shapeId) {
@@ -99,6 +115,7 @@ export default function Editor() {
   }, []);
 
   const updateShapeFill = useCallback((shapeId: string, newColor: string, newOpacity: number) => {
+    if (!shapeId) return;
     setShapes(prevShapes => 
       prevShapes.map(shape => {
         if (shape.id === shapeId) {
@@ -158,6 +175,99 @@ export default function Editor() {
   }, [selectedId]);
 
   // =====================================================================
+  // СОХРАНЕНИЕ ПРОЕКТА (НОВОЕ ДЛЯ ЛР-9)
+  // =====================================================================
+  const handleSave = useCallback(async () => {
+    if (isSaving) return; // Защита от двойного клика
+    setIsSaving(true);
+    
+    try {
+      const currentId = id && id !== 'new' ? id : `proj_${Date.now()}`;
+      const name = projectName.trim() || `Проект ${currentId}`;
+      
+      const projectData: ProjectData = {
+        id: currentId,
+        name,
+        createdAt: isProjectLoaded ? (await loadProject(currentId))?.createdAt || Date.now() : Date.now(),
+        updatedAt: Date.now(),
+        lineAlg,
+        pathMode,
+        shapes: shapesToJSON(shapes)
+      };
+      
+      await saveProject(projectData);
+      
+      // Если проект был новым — обновляем URL
+      if (!isProjectLoaded && id !== currentId) {
+        navigate(`/editor/${currentId}`, { replace: true });
+      }
+      
+      console.log('✅ Проект сохранён:', name);
+      // Используем confirm вместо alert для менее навязчивого уведомления
+      // alert(`Проект "${name}" сохранён!`);
+      
+    } catch (err) {
+      console.error('❌ Ошибка сохранения:', err);
+      alert('Не удалось сохранить проект');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [id, projectName, shapes, lineAlg, pathMode, isProjectLoaded, navigate, isSaving]);
+
+  // =====================================================================
+  // ЗАГРУЗКА ПРОЕКТА ПРИ МОНТИРОВАНИИ (НОВОЕ ДЛЯ ЛР-9)
+  // =====================================================================
+  useEffect(() => {
+    let cancelled = false;
+    
+    const load = async () => {
+      if (!id || id === 'new') {
+        setIsProjectLoaded(false);
+        setProjectName('Новый проект');
+        setShapes([]);
+        setSelectedId(null);
+        return;
+      }
+      
+      try {
+        const data = await loadProject(id);
+        if (cancelled) return;
+        
+        if (data) {
+          setProjectName(data.name || `Проект ${id}`);
+          setLineAlg(data.lineAlg || 'bresenham');
+          setPathMode(data.pathMode || 'catmull');
+          
+          // Восстанавливаем фигуры
+          const loadedShapes = shapesFromJSON(data.shapes || []);
+          setShapes(loadedShapes);
+          setIsProjectLoaded(true);
+          setSelectedId(null); // Сбрасываем выделение при загрузке
+          
+          console.log('✅ Проект загружен:', data.name);
+        } else {
+          // Проект не найден — открываем как новый
+          setIsProjectLoaded(false);
+          setProjectName('Новый проект');
+          setShapes([]);
+          setSelectedId(null);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.error('❌ Ошибка загрузки проекта:', err);
+        setIsProjectLoaded(false);
+        setProjectName('Новый проект');
+        setShapes([]);
+        setSelectedId(null);
+      }
+    };
+    
+    load();
+    
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // =====================================================================
   // ОБРАБОТКА КЛАВИАТУРЫ
   // =====================================================================
   useEffect(() => {
@@ -167,8 +277,15 @@ export default function Editor() {
                       target.tagName === 'TEXTAREA' || 
                       target.isContentEditable;
       
+      // Ctrl+S / Cmd+S — быстрое сохранение
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+      
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (!isInput) {
+        if (!isInput && selectedId) {
           handleDeleteSelected();
         }
         return;
@@ -185,12 +302,14 @@ export default function Editor() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedId, shapes, handleDeleteSelected, updateShapeRotation]);
+  }, [selectedId, shapes, handleDeleteSelected, updateShapeRotation, handleSave]);
 
   // =====================================================================
-  // ПОЛУЧЕНИЕ ВЫДЕЛЕННОЙ ФИГУРЫ
+  // ПОЛУЧЕНИЕ ВЫДЕЛЕННОЙ ФИГУРЫ (мемоизировано для производительности)
   // =====================================================================
-  const selectedShape = shapes.find(s => s.id === selectedId) || null;
+  const selectedShape = useMemo(() => {
+    return shapes.find(s => s.id === selectedId) || null;
+  }, [shapes, selectedId]);
 
   // =====================================================================
   // ОТРИСОВКА ИНТЕРФЕЙСА
@@ -203,28 +322,55 @@ export default function Editor() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate(-1)}
-            className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded transition"
+            className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded transition flex items-center gap-2"
           >
             ← Назад
           </button>
           
-          <h1 className="text-lg font-semibold">
-            Редактор {id ? `№${id}` : "(Новый)"}
-          </h1>
+          {/* ✅ Поле для названия проекта */}
+          <input
+            type="text"
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded text-sm 
+                      focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                      w-48 transition"
+            placeholder="Название проекта"
+          />
         </div>
         
         <div className="flex items-center gap-2">
           <select
             value={lineAlg}
             onChange={(e) => setLineAlg(e.target.value as "bresenham" | "wu")}
-            className="px-2 py-1 bg-slate-700 rounded text-sm"
+            className="px-2 py-1 bg-slate-700 rounded text-sm border border-slate-600"
           >
             <option value="bresenham">Брезенхем</option>
             <option value="wu">Сяолинь Ву</option>
           </select>
           
-          <button className="px-4 py-1 bg-green-600 hover:bg-green-500 rounded transition">
-            Сохранить
+          {/* ✅ Кнопка сохранения с состоянием загрузки */}
+          <button 
+            onClick={handleSave}
+            disabled={isSaving}
+            className={`px-4 py-1.5 rounded transition flex items-center gap-2 font-medium
+              ${isSaving 
+                ? 'bg-slate-600 cursor-not-allowed' 
+                : 'bg-green-600 hover:bg-green-500 active:scale-95'
+              }`}
+            title="Сохранить проект (Ctrl+S)"
+          >
+            {isSaving ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Сохранение...
+              </>
+            ) : (
+              <>
+                <Save size={16} />
+                Сохранить
+              </>
+            )}
           </button>
         </div>
       </header>
@@ -354,6 +500,7 @@ export default function Editor() {
             />
           </div>
         </main>
+        
         {/* ПРАВАЯ ПАНЕЛЬ — СЛОИ И СВОЙСТВА */}
         <aside className="w-72 border-l border-slate-800 bg-slate-900 p-4 overflow-y-auto flex flex-col gap-4 flex-shrink-0">
           
@@ -458,27 +605,33 @@ export default function Editor() {
                   <p className="text-sm text-slate-400 mb-2">Позиция</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs text-slate-500">X</label>
+                      <label className="text-xs text-slate-500 block mb-1">X</label>
                       <input
+                        key={`pos-x-${selectedShape.id}`}
                         type="number"
                         value={Math.round(selectedShape.transform.x)}
                         onChange={(e) => {
                           const val = parseFloat(e.target.value);
-                          updateShapePosition(selectedId!, val, selectedShape.transform.y);
+                          if (!isNaN(val) && selectedId) {
+                            updateShapePosition(selectedId, val, selectedShape.transform.y);
+                          }
                         }}
-                        className="w-full px-2 py-1 bg-slate-700 rounded text-sm"
+                        className="w-full px-2 py-1 bg-slate-700 rounded text-sm border border-slate-600 focus:border-blue-500 focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-slate-500">Y</label>
+                      <label className="text-xs text-slate-500 block mb-1">Y</label>
                       <input
+                        key={`pos-y-${selectedShape.id}`}
                         type="number"
                         value={Math.round(selectedShape.transform.y)}
                         onChange={(e) => {
                           const val = parseFloat(e.target.value);
-                          updateShapePosition(selectedId!, selectedShape.transform.x, val);
+                          if (!isNaN(val) && selectedId) {
+                            updateShapePosition(selectedId, selectedShape.transform.x, val);
+                          }
                         }}
-                        className="w-full px-2 py-1 bg-slate-700 rounded text-sm"
+                        className="w-full px-2 py-1 bg-slate-700 rounded text-sm border border-slate-600 focus:border-blue-500 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -488,19 +641,22 @@ export default function Editor() {
                 <div className="p-3 bg-slate-800 rounded">
                   <p className="text-sm text-slate-400 mb-2">Поворот</p>
                   <input
+                    key={`rot-${selectedShape.id}`}
                     type="range"
-                    min="-3.14"
-                    max="3.14"
-                    step="0.1"
+                    min={-Math.PI}
+                    max={Math.PI}
+                    step={0.1}
                     value={selectedShape.transform.rotation}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
-                      updateShapeRotation(selectedId!, val);
+                      if (selectedId) {
+                        updateShapeRotation(selectedId, val);
+                      }
                     }}
-                    className="w-full"
+                    className="w-full accent-blue-500"
                   />
-                  <p className="text-xs text-slate-500 mt-1">
-                    {(selectedShape.transform.rotation * 180 / Math.PI).toFixed(0)}°
+                  <p className="text-xs text-slate-500 mt-1 text-right">
+                    {((selectedShape.transform.rotation * 180) / Math.PI).toFixed(0)}°
                   </p>
                 </div>
 
@@ -509,29 +665,37 @@ export default function Editor() {
                   <p className="text-sm text-slate-400 mb-2">Масштаб</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs text-slate-500">X</label>
+                      <label className="text-xs text-slate-500 block mb-1">X</label>
                       <input
+                        key={`scale-x-${selectedShape.id}`}
                         type="number"
-                        step="0.1"
+                        step={0.1}
+                        min={0.1}
                         value={selectedShape.transform.scaleX.toFixed(1)}
                         onChange={(e) => {
                           const val = parseFloat(e.target.value);
-                          updateShapeScale(selectedId!, val, selectedShape.transform.scaleY);
+                          if (!isNaN(val) && val > 0 && selectedId) {
+                            updateShapeScale(selectedId, val, selectedShape.transform.scaleY);
+                          }
                         }}
-                        className="w-full px-2 py-1 bg-slate-700 rounded text-sm"
+                        className="w-full px-2 py-1 bg-slate-700 rounded text-sm border border-slate-600 focus:border-blue-500 focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-slate-500">Y</label>
+                      <label className="text-xs text-slate-500 block mb-1">Y</label>
                       <input
+                        key={`scale-y-${selectedShape.id}`}
                         type="number"
-                        step="0.1"
+                        step={0.1}
+                        min={0.1}
                         value={selectedShape.transform.scaleY.toFixed(1)}
                         onChange={(e) => {
                           const val = parseFloat(e.target.value);
-                          updateShapeScale(selectedId!, selectedShape.transform.scaleX, val);
+                          if (!isNaN(val) && val > 0 && selectedId) {
+                            updateShapeScale(selectedId, selectedShape.transform.scaleX, val);
+                          }
                         }}
-                        className="w-full px-2 py-1 bg-slate-700 rounded text-sm"
+                        className="w-full px-2 py-1 bg-slate-700 rounded text-sm border border-slate-600 focus:border-blue-500 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -542,25 +706,36 @@ export default function Editor() {
                   <p className="text-sm text-slate-400 mb-2">Заливка</p>
                   <div className="flex items-center gap-2">
                     <input
+                      key={`color-${selectedShape.id}`}
                       type="color"
                       value={selectedShape.fillStyle}
                       onChange={(e) => {
-                        updateShapeFill(selectedId!, e.target.value, selectedShape.fillOpacity);
+                        if (selectedId) {
+                          updateShapeFill(selectedId, e.target.value, selectedShape.fillOpacity);
+                        }
                       }}
-                      className="w-8 h-8 rounded cursor-pointer"
+                      className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent"
                     />
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.1"
-                      value={selectedShape.fillOpacity}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        updateShapeFill(selectedId!, selectedShape.fillStyle, val);
-                      }}
-                      className="flex-1"
-                    />
+                    <div className="flex-1">
+                      <input
+                        key={`opacity-${selectedShape.id}`}
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        value={selectedShape.fillOpacity}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (selectedId) {
+                            updateShapeFill(selectedId, selectedShape.fillStyle, val);
+                          }
+                        }}
+                        className="w-full accent-blue-500"
+                      />
+                      <p className="text-xs text-slate-500 mt-1 text-right">
+                        {Math.round(selectedShape.fillOpacity * 100)}%
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -569,9 +744,10 @@ export default function Editor() {
                   <div className="p-3 bg-slate-800 rounded">
                     <p className="text-sm text-slate-400 mb-2">Режим пути</p>
                     <select
+                      key={`pathmode-${selectedShape.id}`}
                       value={pathMode}
                       onChange={(e) => setPathMode(e.target.value as PathMode)}
-                      className="w-full px-2 py-1 bg-slate-700 rounded text-sm"
+                      className="w-full px-2 py-1 bg-slate-700 rounded text-sm border border-slate-600 focus:border-blue-500 focus:outline-none"
                     >
                       <option value="polyline">Ломаная</option>
                       <option value="bezier">Безье</option>
@@ -583,7 +759,7 @@ export default function Editor() {
                 {/* Кнопка удаления */}
                 <button
                   onClick={handleDeleteSelected}
-                  className="w-full py-2 bg-red-600 hover:bg-red-500 rounded transition text-sm flex items-center justify-center gap-2"
+                  className="w-full py-2 bg-red-600 hover:bg-red-500 active:scale-95 rounded transition text-sm flex items-center justify-center gap-2 mt-2"
                 >
                   <Trash2 size={16} />
                   Удалить фигуру
@@ -591,7 +767,7 @@ export default function Editor() {
               </div>
             ) : (
               <div className="text-slate-300 text-sm space-y-3">
-                <p className="text-slate-400 mb-3">Выберите инструмент:</p>
+                <p className="text-slate-400 mb-3">Выберите фигуру на холсте</p>
                 
                 <div className="space-y-2">
                   <div className="flex items-start gap-2 p-2 rounded hover:bg-slate-800/50 transition">
@@ -655,11 +831,15 @@ export default function Editor() {
                   <p className="text-xs text-slate-500 mb-2">Подсказки:</p>
                   <ul className="text-xs text-slate-400 space-y-1">
                     <li className="flex items-center gap-2">
-                      <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px]">Delete</kbd>
+                      <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] border border-slate-600">Ctrl+S</kbd>
+                      <span>сохранить проект</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] border border-slate-600">Delete</kbd>
                       <span>удалить выделенное</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px]">← →</kbd>
+                      <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] border border-slate-600">← →</kbd>
                       <span>повернуть выделенное</span>
                     </li>
                   </ul>
